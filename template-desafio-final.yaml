@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Template para o desafio DIO de automação com Lambda Function e S3.
+  Cria um bucket S3 que, ao receber um novo arquivo, aciona automaticamente
+  uma Lambda Function. Rodando localmente via LocalStack.
+
+Resources:
+
+  MeuBucketNotasFiscais:
+    Type: AWS::S3::Bucket
+    DependsOn: PermissaoS3InvocarLambda
+    Properties:
+      BucketName: notas-fiscais-lambda
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt MinhaLambdaFunction.Arn
+
+  MinhaLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  MinhaLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: processador-notas-fiscais
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt MinhaLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import json
+
+          def lambda_handler(event, context):
+              for record in event.get("Records", []):
+                  bucket_name = record["s3"]["bucket"]["name"]
+                  object_key = record["s3"]["object"]["key"]
+                  print(f"Arquivo processado: {object_key} no bucket {bucket_name}")
+              return {"statusCode": 200, "body": json.dumps("Processamento concluido!")}
+      Timeout: 10
+
+  PermissaoS3InvocarLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MinhaLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::notas-fiscais-lambda
+
+Outputs:
+  NomeDoBucket:
+    Description: Nome do bucket S3 criado
+    Value: !Ref MeuBucketNotasFiscais
+
+  NomeDaLambda:
+    Description: Nome da Lambda Function criada
+    Value: !Ref MinhaLambdaFunction
